@@ -1,0 +1,27 @@
+{
+  "name": "campushub-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "npm run build && npm start",
+    "start": "node dist/app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "eslint": "^10.11.0",
+    "prettier": "^3.9.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
