@@ -1,0 +1,184 @@
+openapi: 3.0.3
+info:
+  title: CampusHub Reservation API
+  version: 1.0.0
+  description: API for managing campus resources and time-slotted reservations.
+servers:
+  - url: http://localhost:3000/api/v1
+security: []
+paths:
+  /resources:
+    get:
+      summary: List campus resources
+      operationId: listResources
+      parameters:
+        - name: type
+          in: query
+          description: Filter resources by type, such as ROOM, EQUIPMENT, LAB, or STUDY_ROOM.
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          example: STUDY_ROOM
+      responses:
+        '200':
+          description: Resources matching the optional type filter.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Resource'
+        '400':
+          description: Invalid query input, such as an empty type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reservations:
+    post:
+      summary: Create a reservation
+      operationId: createReservation
+      description: Reservations for the same resource cannot have overlapping time slots.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Reservation'
+      responses:
+        '201':
+          description: Reservation created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          description: Invalid request data, including an invalid time range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The requested time slot overlaps an existing reservation for the same resource.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reservations/user/{userId}:
+    get:
+      summary: List a user's active reservations
+      operationId: listUserReservations
+      description: Returns reservations whose status is PENDING or CONFIRMED.
+      parameters:
+        - name: userId
+          in: path
+          description: ID of the user whose active reservations are requested.
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: The user's active reservations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reservation'
+        '400':
+          description: Invalid user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    Resource:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - location
+        - isAvailable
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          description: Resource category. Known examples include ROOM, EQUIPMENT, LAB, and STUDY_ROOM; other non-empty categories are allowed.
+          minLength: 1
+          example: STUDY_ROOM
+        location:
+          type: string
+        isAvailable:
+          type: boolean
+
+    Reservation:
+      type: object
+      required:
+        - resourceId
+        - userId
+        - startTime
+        - endTime
+      properties:
+        id:
+          type: string
+          description: ID assigned by the server when the reservation is created.
+          readOnly: true
+        resourceId:
+          type: string
+        userId:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+          description: Must be later than startTime.
+        status:
+          type: string
+          description: Assigned by the server; defaults to PENDING when a reservation is created.
+          enum:
+            - PENDING
+            - CONFIRMED
+            - CANCELLED
+          default: PENDING
+          readOnly: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
