@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import campusService = require("../services/campus.service");
-import type { ErrorResponse, Reservation, Resource } from "../types/reservation";
+import reservationService = require("../services/reservation.service");
+import type { ErrorResponse, Reservation } from "../types/reservation";
 
 const dateTimePattern: RegExp =
   /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
@@ -37,29 +37,7 @@ function sendError(
   response.status(statusCode).json(error);
 }
 
-function getResources(request: Request, response: Response): void {
-  try {
-    const type: unknown = request.query.type;
-    if (type !== undefined && !isNonEmptyString(type)) {
-      sendError(
-        response,
-        400,
-        "VALIDATION_ERROR",
-        "type must be a non-empty string when provided.",
-      );
-      return;
-    }
-
-    const resourceList: Resource[] = campusService.getResources(
-      type === undefined ? undefined : type.trim(),
-    );
-    response.status(200).json(resourceList);
-  } catch {
-    sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");
-  }
-}
-
-function createReservation(request: Request, response: Response): void {
+async function createReservation(request: Request, response: Response): Promise<void> {
   try {
     const body: unknown = request.body;
     if (!isRecord(body)) {
@@ -93,18 +71,23 @@ function createReservation(request: Request, response: Response): void {
       return;
     }
 
-    if (Date.parse(endTime) <= Date.parse(startTime)) {
-      sendError(response, 400, "VALIDATION_ERROR", "endTime must be later than startTime.");
-      return;
-    }
-
-    const reservation: Reservation | null = campusService.createReservation({
+    const result = await reservationService.createReservation({
       resourceId,
       userId,
       startTime,
       endTime,
     });
-    if (reservation === null) {
+
+    if (result.kind === "invalid") {
+      const message: string =
+        result.reason === "INVALID_RESOURCE_ID"
+          ? "resourceId must be a valid MongoDB ObjectId."
+          : "endTime must be later than startTime.";
+      sendError(response, 400, "VALIDATION_ERROR", message);
+      return;
+    }
+
+    if (result.kind === "conflict") {
       sendError(
         response,
         409,
@@ -114,13 +97,16 @@ function createReservation(request: Request, response: Response): void {
       return;
     }
 
-    response.status(201).json(reservation);
+    response.status(201).json(result.reservation);
   } catch {
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");
   }
 }
 
-function getUserReservations(request: Request, response: Response): void {
+async function getUserReservations(
+  request: Request,
+  response: Response,
+): Promise<void> {
   try {
     const userId: unknown = request.params.userId;
     if (!isNonEmptyString(userId)) {
@@ -128,11 +114,12 @@ function getUserReservations(request: Request, response: Response): void {
       return;
     }
 
-    const reservations: Reservation[] = campusService.getActiveReservationsForUser(userId);
+    const reservations: Reservation[] =
+      await reservationService.getActiveReservationsForUser(userId);
     response.status(200).json(reservations);
   } catch {
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");
   }
 }
 
-export = { getResources, createReservation, getUserReservations };
+export = { createReservation, getUserReservations };
