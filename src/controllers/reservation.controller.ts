@@ -115,11 +115,35 @@ async function getUserReservations(
     }
 
     const reservations: Reservation[] =
-      await reservationService.getActiveReservationsForUser(userId);
+      await reservationService.getReservationsForUser(userId);
     response.status(200).json(reservations);
   } catch {
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");
   }
 }
 
-export = { createReservation, getUserReservations };
+async function cancelReservation(request: Request, response: Response): Promise<void> {
+  try {
+    const id: unknown = request.params.id;
+    if (!isNonEmptyString(id)) {
+      sendError(response, 400, "VALIDATION_ERROR", "id must be a valid MongoDB ObjectId.");
+      return;
+    }
+
+    const result = await reservationService.cancelReservation(id);
+    if (result.kind === "invalid") {
+      sendError(response, 400, "VALIDATION_ERROR", "id must be a valid MongoDB ObjectId.");
+      return;
+    }
+    if (result.kind === "notFound") {
+      sendError(response, 404, "NOT_FOUND", "Reservation not found.");
+      return;
+    }
+
+    response.status(200).json(result.reservation);
+  } catch {
+    sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");
+  }
+}
+
+export = { createReservation, getUserReservations, cancelReservation };

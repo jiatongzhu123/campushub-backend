@@ -14,15 +14,28 @@ paths:
       parameters:
         - name: type
           in: query
-          description: Filter resources by type, such as ROOM, EQUIPMENT, LAB, or STUDY_ROOM.
+          description: Filter resources by type. Can be combined with isAvailable.
           required: false
           schema:
             type: string
-            minLength: 1
-          example: STUDY_ROOM
+            enum:
+              - ROOM
+              - EQUIPMENT
+              - LAB
+          example: ROOM
+        - name: isAvailable
+          in: query
+          description: Filter resources by availability. Accepts the strings "true" and "false".
+          required: false
+          schema:
+            type: string
+            enum:
+              - 'true'
+              - 'false'
+          example: 'false'
       responses:
         '200':
-          description: Resources matching the optional type filter.
+          description: Resources matching the optional type and availability filters.
           content:
             application/json:
               schema:
@@ -30,7 +43,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/Resource'
         '400':
-          description: Invalid query input, such as an empty type.
+          description: Invalid type or isAvailable filter value.
           content:
             application/json:
               schema:
@@ -46,7 +59,11 @@ paths:
     post:
       summary: Create a reservation
       operationId: createReservation
-      description: Reservations for the same resource cannot have overlapping time slots.
+      description: >-
+        A PENDING or CONFIRMED reservation for the same resource blocks an overlapping
+        time slot. CANCELLED reservations do not block bookings, and adjacent time
+        slots are allowed. The conflict check and creation are separate database
+        operations, so simultaneous requests can still create overlapping reservations.
       requestBody:
         required: true
         content:
@@ -61,13 +78,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Reservation'
         '400':
-          description: Invalid request data, including an invalid time range.
+          description: Invalid request data, malformed JSON, or an invalid time range.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: The requested time slot overlaps an existing reservation for the same resource.
+          description: The requested time slot overlaps a PENDING or CONFIRMED reservation for the same resource.
           content:
             application/json:
               schema:
@@ -81,20 +98,20 @@ paths:
 
   /reservations/user/{userId}:
     get:
-      summary: List a user's active reservations
+      summary: List a user's reservations
       operationId: listUserReservations
-      description: Returns reservations whose status is PENDING or CONFIRMED.
+      description: Returns all reservations for the user, including PENDING, CONFIRMED, and CANCELLED.
       parameters:
         - name: userId
           in: path
-          description: ID of the user whose active reservations are requested.
+          description: ID of the user whose reservations are requested.
           required: true
           schema:
             type: string
             minLength: 1
       responses:
         '200':
-          description: The user's active reservations.
+          description: All of the user's reservations, or an empty array when none exist.
           content:
             application/json:
               schema:
@@ -103,6 +120,49 @@ paths:
                   $ref: '#/components/schemas/Reservation'
         '400':
           description: Invalid user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reservations/{id}/cancel:
+    patch:
+      summary: Cancel a reservation
+      operationId: cancelReservation
+      description: >-
+        Atomically changes a PENDING or CONFIRMED reservation to CANCELLED.
+        Repeating the request for an already CANCELLED reservation returns that
+        reservation with HTTP 200. Cancellation leaves its time slot available
+        for new bookings.
+      parameters:
+        - name: id
+          in: path
+          description: MongoDB ObjectId of the reservation to cancel.
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+      responses:
+        '200':
+          description: The cancelled reservation, including for a repeated request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          description: Invalid reservation ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No reservation exists with this ID.
           content:
             application/json:
               schema:
@@ -131,9 +191,12 @@ components:
           type: string
         type:
           type: string
-          description: Resource category. Known examples include ROOM, EQUIPMENT, LAB, and STUDY_ROOM; other non-empty categories are allowed.
-          minLength: 1
-          example: STUDY_ROOM
+          description: Resource category.
+          enum:
+            - ROOM
+            - EQUIPMENT
+            - LAB
+          example: ROOM
         location:
           type: string
         isAvailable:
@@ -153,15 +216,23 @@ components:
           readOnly: true
         resourceId:
           type: string
+          description: MongoDB ObjectId of the resource, exactly 24 hexadecimal characters.
+          pattern: '^[0-9a-fA-F]{24}$'
         userId:
           type: string
+          description: Nonempty user ID; whitespace alone is invalid.
+          minLength: 1
+          pattern: '\S'
         startTime:
           type: string
           format: date-time
+          description: Valid calendar date and time with seconds and an explicit timezone.
+          pattern: '^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$'
         endTime:
           type: string
           format: date-time
-          description: Must be later than startTime.
+          description: Valid calendar date and time with seconds and an explicit timezone; must be later than startTime.
+          pattern: '^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$'
         status:
           type: string
           description: Assigned by the server; defaults to PENDING when a reservation is created.

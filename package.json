@@ -7,7 +7,7 @@
     "build": "tsc",
     "dev": "npm run build && npm start",
     "start": "node dist/app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run build && node --test --test-isolation=none --test-concurrency=1 dist/tests/resource.test.js dist/tests/reservation.test.js dist/tests/cancellation.test.js"
   },
   "keywords": [],
   "author": "",

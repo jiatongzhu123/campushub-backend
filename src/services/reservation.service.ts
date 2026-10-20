@@ -18,6 +18,11 @@ type CreateReservationResult =
   | { kind: "conflict" }
   | { kind: "invalid"; reason: InvalidReservationReason };
 
+type CancelReservationResult =
+  | { kind: "invalid" }
+  | { kind: "notFound" }
+  | { kind: "cancelled"; reservation: Reservation };
+
 async function createReservation(
   input: CreateReservationInput,
 ): Promise<CreateReservationResult> {
@@ -42,7 +47,7 @@ async function createReservation(
     .where("resourceId")
     .equals(resourceId)
     .where("status")
-    .ne("CANCELLED")
+    .in(["PENDING", "CONFIRMED"])
     .where("startTime")
     .lt(endTime.getTime())
     .where("endTime")
@@ -74,12 +79,10 @@ async function createReservation(
   };
 }
 
-async function getActiveReservationsForUser(userId: string): Promise<Reservation[]> {
+async function getReservationsForUser(userId: string): Promise<Reservation[]> {
   const reservationDocuments = await ReservationModel.find()
     .where("userId")
     .equals(userId)
-    .where("status")
-    .in(["PENDING", "CONFIRMED"])
     .exec();
 
   return reservationDocuments.map(
@@ -94,4 +97,38 @@ async function getActiveReservationsForUser(userId: string): Promise<Reservation
   );
 }
 
-export = { createReservation, getActiveReservationsForUser };
+async function cancelReservation(id: string): Promise<CancelReservationResult> {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return { kind: "invalid" };
+  }
+
+  const reservationId: mongoose.Types.ObjectId = new mongoose.Types.ObjectId(id);
+  const updatedReservation = await ReservationModel.findOneAndUpdate(
+    { _id: reservationId, status: { $in: ["PENDING", "CONFIRMED"] } },
+    { $set: { status: "CANCELLED" } },
+    { new: true, runValidators: true },
+  ).exec();
+
+  const reservationDocument =
+    updatedReservation ?? (await ReservationModel.findById(reservationId).exec());
+  if (reservationDocument === null) {
+    return { kind: "notFound" };
+  }
+  if (reservationDocument.status !== "CANCELLED") {
+    throw new Error("Reservation status changed during cancellation.");
+  }
+
+  return {
+    kind: "cancelled",
+    reservation: {
+      id: reservationDocument._id.toString(),
+      resourceId: reservationDocument.resourceId.toString(),
+      userId: reservationDocument.userId,
+      startTime: reservationDocument.startTime.toISOString(),
+      endTime: reservationDocument.endTime.toISOString(),
+      status: reservationDocument.status,
+    },
+  };
+}
+
+export = { createReservation, getReservationsForUser, cancelReservation };

@@ -1,9 +1,14 @@
 import type { Request, Response } from "express";
 import resourceService = require("../services/resource.service");
-import type { ErrorResponse, Resource } from "../types/reservation";
+import type {
+  ErrorResponse,
+  Resource,
+  ResourceFilters,
+  ResourceType,
+} from "../types/reservation";
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+function isResourceType(value: unknown): value is ResourceType {
+  return value === "ROOM" || value === "EQUIPMENT" || value === "LAB";
 }
 
 function sendError(
@@ -19,19 +24,36 @@ function sendError(
 async function getResources(request: Request, response: Response): Promise<void> {
   try {
     const type: unknown = request.query.type;
-    if (type !== undefined && !isNonEmptyString(type)) {
+    if (type !== undefined && !isResourceType(type)) {
       sendError(
         response,
         400,
         "VALIDATION_ERROR",
-        "type must be a non-empty string when provided.",
+        "type must be ROOM, EQUIPMENT, or LAB.",
       );
       return;
     }
 
-    const resourceList: Resource[] = await resourceService.getResources(
-      type === undefined ? undefined : type.trim(),
-    );
+    const isAvailable: unknown = request.query.isAvailable;
+    if (isAvailable !== undefined && isAvailable !== "true" && isAvailable !== "false") {
+      sendError(
+        response,
+        400,
+        "VALIDATION_ERROR",
+        'isAvailable must be "true" or "false".',
+      );
+      return;
+    }
+
+    const filters: ResourceFilters = {};
+    if (type !== undefined) {
+      filters.type = type;
+    }
+    if (isAvailable !== undefined) {
+      filters.isAvailable = isAvailable === "true";
+    }
+
+    const resourceList: Resource[] = await resourceService.getResources(filters);
     response.status(200).json(resourceList);
   } catch {
     sendError(response, 500, "INTERNAL_ERROR", "An unexpected server error occurred.");

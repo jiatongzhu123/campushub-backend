@@ -1,9 +1,15 @@
 export type ReservationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
+export type ResourceType = "ROOM" | "EQUIPMENT" | "LAB";
+
+export interface ResourceFilters {
+  type?: ResourceType;
+  isAvailable?: boolean;
+}
 
 export interface Resource {
   id: string;
   name: string;
-  type: string;
+  type: ResourceType;
   location: string;
   isAvailable: boolean;
 }
