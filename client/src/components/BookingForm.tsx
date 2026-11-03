@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactElement } from 'react'
-import { CampusHubApiError, createReservation } from '../api/campushubApi'
+import { useCreateReservation } from '../hooks/useReservations'
 import type { CreateReservationDTO, Resource } from '../types/api'
 import { validateBookingWindow } from '../utils/bookingDateTime'
 import styles from '../App.module.css'
@@ -11,45 +11,17 @@ export interface BookingFormProps {
   onBookingSuccess: () => void
 }
 
-interface Feedback {
-  kind: 'success' | 'error'
-  message: string
-}
-
-function bookingErrorMessage(cause: unknown): string {
-  if (cause instanceof CampusHubApiError) {
-    if (cause.status === 409) {
-      return 'This resource is already reserved for that time window. Choose different times and try again.'
-    }
-    if (cause.status === 400) {
-      return `Please check your booking details. ${cause.message}`
-    }
-    if (cause.status === 0) {
-      return 'The booking service could not be reached. Check your connection and try again.'
-    }
-    if (cause.status === 500) {
-      return 'The booking service encountered an error. Please try again later.'
-    }
-    return cause.message
-  }
-
-  return 'The booking could not be completed. Please try again.'
-}
-
 function BookingForm({ resource, userId, onBookingSuccess }: BookingFormProps): ReactElement {
   const [startValue, setStartValue] = useState<string>('')
   const [endValue, setEndValue] = useState<string>('')
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
-  const [feedback, setFeedback] = useState<Feedback | null>(null)
-  const submissionInProgress = useRef<boolean>(false)
-  const isMounted = useRef<boolean>(true)
-
-  useEffect((): (() => void) => {
-    isMounted.current = true
-    return (): void => {
-      isMounted.current = false
-    }
-  }, [])
+  const { isSubmitting, feedback, setFeedback, isSubmissionInProgress, submitReservation } =
+    useCreateReservation({
+      onSuccess: onBookingSuccess,
+      onMountedSuccess: (): void => {
+        setStartValue('')
+        setEndValue('')
+      },
+    })
 
   function handleStartChange(event: ChangeEvent<HTMLInputElement>): void {
     setStartValue(event.target.value)
@@ -63,7 +35,7 @@ function BookingForm({ resource, userId, onBookingSuccess }: BookingFormProps): 
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (submissionInProgress.current) {
+    if (isSubmissionInProgress()) {
       return
     }
     setFeedback(null)
@@ -88,27 +60,7 @@ function BookingForm({ resource, userId, onBookingSuccess }: BookingFormProps): 
       userId: userId.trim(),
       ...timeResult.window,
     }
-    submissionInProgress.current = true
-    setIsSubmitting(true)
-
-    try {
-      await createReservation(payload)
-      if (isMounted.current) {
-        setFeedback({ kind: 'success', message: 'Booking created. It now appears in My Bookings.' })
-        setStartValue('')
-        setEndValue('')
-      }
-      onBookingSuccess()
-    } catch (cause: unknown) {
-      if (isMounted.current) {
-        setFeedback({ kind: 'error', message: bookingErrorMessage(cause) })
-      }
-    } finally {
-      submissionInProgress.current = false
-      if (isMounted.current) {
-        setIsSubmitting(false)
-      }
-    }
+    await submitReservation(payload)
   }
 
   return (

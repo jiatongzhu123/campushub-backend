@@ -1,0 +1,49 @@
+# Dependencies, build output, and coverage (root and client).
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/build/
+**/coverage/
+**/.vite/
+**/.vite-temp/
+**/.cache/
+
+# Dependency lockfiles.
+**/package-lock.json
+**/npm-shrinkwrap.json
+**/yarn.lock
+**/pnpm-lock.yaml
+**/bun.lock
+**/bun.lockb
+
+# Historical logs and temporary files.
+**/logs/
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/lerna-debug.log*
+/docs/*-steering-log.md
+**/tmp/
+**/temp/
+**/*.tmp
+**/*.temp
+**/*.bak
+**/*~
+**/*.tsbuildinfo
+
+# Generated maps and JavaScript bundles outside build directories.
+**/*.map
+**/*.bundle.js
+**/*.bundle.mjs
+**/*.bundle.cjs
+**/*.chunk.js
+**/*.min.js
+
+# Generated API documentation/build artifacts; keep docs/openapi.yaml.
+**/api-docs-build/
+**/openapi-build/
+**/swagger-build/
+/docs/generated/
+/client/docs/generated/

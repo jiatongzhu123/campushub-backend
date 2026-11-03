@@ -1,11 +1,8 @@
-# CampusHub Frontend Guidelines
+# CampusHub Context
 
-- Use functional React components only.
-- Declare explicit TypeScript interfaces for component props.
-- Manage component state with React `useState` and `useEffect` or custom hooks.
-- Keep API calls out of JSX. Use the typed client in `client/src/api/`.
-- Use CSS Modules for component styling and keep styles modular and consistent. Reserve global CSS for base styles.
-- Do not use the TypeScript `any` type.
-- Respect the backend contract in `docs/openapi.yaml` and the implemented `/api/v1` routes.
-- Handle loading, error, and success states explicitly in UI flows.
-- Follow `AGENTS.md` for repository-wide rules, including dependency approval.
+Follow `AGENTS.md` for architecture, TypeScript/React rules, API compatibility, dependency approval, source scope, and test/build commands.
+
+- Backend: Express/Mongoose in `src/`; entry `src/app.ts`.
+- Frontend: React/Vite in `client/src/`; resource filtering, booking, reservation listing/cancellation.
+- Booking and reservation UI: `client/src/components/BookingForm.tsx`, `client/src/components/UserReservations.tsx`.
+- Typed API and interfaces: `client/src/api/`, `client/src/types/`; contract: handwritten `docs/openapi.yaml`.

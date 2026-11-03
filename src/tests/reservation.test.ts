@@ -4,6 +4,7 @@ import nodeTest = require("node:test");
 import express = require("express");
 import mongoose = require("mongoose");
 import handleMalformedJson = require("../middleware/json-error.middleware");
+import errorHandler = require("../middleware/errorHandler");
 import reservationModelModule = require("../models/Reservation.model");
 import reservationRouter = require("../routes/reservation.routes");
 import type { Reservation } from "../types/reservation";
@@ -25,7 +26,7 @@ interface HttpResult {
   body: Record<string, unknown>;
 }
 
-test("POST /api/v1/reservations checks active overlaps and validates input", async (context): Promise<void> => {
+test("POST /api/v1/reservations checks active overlaps and validates input", async (context: nodeTest.TestContext): Promise<void> => {
   const resourceA: string = "000000000000000000000001";
   const resourceB: string = "000000000000000000000002";
   const day: string = "2026-10-19";
@@ -90,6 +91,7 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
   app.use(express.json());
   app.use(handleMalformedJson);
   app.use("/api/v1", reservationRouter);
+  app.use(errorHandler);
   const server: http.Server = await new Promise<http.Server>((resolve, reject): void => {
     const listeningServer: http.Server = app.listen(0, "127.0.0.1", (): void => {
       resolve(listeningServer);
@@ -116,7 +118,7 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
     return { resourceId, userId: "student-1", startTime, endTime };
   }
 
-  async function post(body: Record<string, unknown>): Promise<HttpResult> {
+  async function post(body: unknown): Promise<HttpResult> {
     const response: Response = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -128,11 +130,17 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
     };
   }
 
-  async function expectError(body: Record<string, unknown>, status: number, code: string): Promise<void> {
+  async function expectError(
+    body: unknown,
+    status: number,
+    code: string,
+    message: string,
+  ): Promise<void> {
     const result: HttpResult = await post(body);
     assert.equal(result.status, status);
     assert.equal(result.body.code, code);
     assert.equal(typeof result.body.message, "string");
+    assert.deepEqual(result.body, { code, message });
   }
 
   const created: HttpResult = await post(booking(resourceA, at("10:00"), at("11:00")));
@@ -158,8 +166,9 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
     endTime: { $gt: new Date(at("10:00")).getTime() },
   });
 
-  await expectError(booking(resourceA, at("10:30"), at("11:30")), 409, "DOUBLE_BOOKING");
-  await expectError(booking(resourceA, at("13:30"), at("14:30")), 409, "DOUBLE_BOOKING");
+  const conflictMessage: string = "Resource is already reserved for this time slot.";
+  await expectError(booking(resourceA, at("10:30"), at("11:30")), 409, "DOUBLE_BOOKING", conflictMessage);
+  await expectError(booking(resourceA, at("13:30"), at("14:30")), 409, "DOUBLE_BOOKING", conflictMessage);
   assert.equal((await post(booking(resourceA, at("11:00"), at("12:00")))).status, 201);
   assert.equal((await post(booking(resourceA, at("09:00"), at("10:00")))).status, 201);
   assert.equal((await post(booking(resourceA, at("15:30"), at("16:30")))).status, 201);
@@ -167,20 +176,29 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
 
   const queryCount: number = queries.length;
   const recordCount: number = records.length;
-  await expectError(booking("invalid-id", at("17:00"), at("18:00")), 400, "VALIDATION_ERROR");
-  await expectError(booking("123456789012", at("17:00"), at("18:00")), 400, "VALIDATION_ERROR");
+  const resourceIdMessage: string = "resourceId must be a valid MongoDB ObjectId.";
+  const fieldsMessage: string = "resourceId, userId, startTime, and endTime must be non-empty strings.";
+  const dateTimeMessage: string = "startTime and endTime must be valid date-time strings.";
+  const timeRangeMessage: string = "endTime must be later than startTime.";
+  await expectError(booking("invalid-id", at("17:00"), at("18:00")), 400, "VALIDATION_ERROR", resourceIdMessage);
+  await expectError(booking("123456789012", at("17:00"), at("18:00")), 400, "VALIDATION_ERROR", resourceIdMessage);
   await expectError(
     { ...booking(resourceA, at("17:00"), at("18:00")), userId: "   " },
     400,
     "VALIDATION_ERROR",
+    fieldsMessage,
   );
-  await expectError(booking(resourceA, "not-a-date", at("18:00")), 400, "VALIDATION_ERROR");
-  await expectError(booking(resourceA, "2026-02-30T17:00:00Z", at("18:00")), 400, "VALIDATION_ERROR");
-  await expectError(booking(resourceA, "2026-10-19T17:00:00", at("18:00")), 400, "VALIDATION_ERROR");
-  await expectError(booking(resourceA, at("18:00"), at("17:00")), 400, "VALIDATION_ERROR");
-  await expectError(booking(resourceA, at("18:00"), at("18:00")), 400, "VALIDATION_ERROR");
-  await expectError({ userId: "student-1", startTime: at("17:00"), endTime: at("18:00") }, 400, "VALIDATION_ERROR");
-  await expectError({ resourceId: resourceA, userId: "student-1", startTime: at("17:00") }, 400, "VALIDATION_ERROR");
+  await expectError(booking(resourceA, "not-a-date", at("18:00")), 400, "VALIDATION_ERROR", dateTimeMessage);
+  await expectError(booking(resourceA, "2026-02-30T17:00:00Z", at("18:00")), 400, "VALIDATION_ERROR", dateTimeMessage);
+  await expectError(booking(resourceA, "2026-10-19T17:00:00", at("18:00")), 400, "VALIDATION_ERROR", dateTimeMessage);
+  await expectError(booking(resourceA, at("18:00"), at("17:00")), 400, "VALIDATION_ERROR", timeRangeMessage);
+  await expectError(booking(resourceA, at("18:00"), at("18:00")), 400, "VALIDATION_ERROR", timeRangeMessage);
+  await expectError({ userId: "student-1", startTime: at("17:00"), endTime: at("18:00") }, 400, "VALIDATION_ERROR", fieldsMessage);
+  await expectError({ resourceId: resourceA, userId: "student-1", startTime: at("17:00") }, 400, "VALIDATION_ERROR", fieldsMessage);
+  await expectError([], 400, "VALIDATION_ERROR", "Request body must be an object.");
+  await expectError({}, 400, "VALIDATION_ERROR", fieldsMessage);
+  await expectError(booking("invalid-id", "not-a-date", at("18:00")), 400, "VALIDATION_ERROR", dateTimeMessage);
+  await expectError(booking("invalid-id", at("18:00"), at("17:00")), 400, "VALIDATION_ERROR", resourceIdMessage);
   const malformedResponse: Response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -196,11 +214,16 @@ test("POST /api/v1/reservations checks active overlaps and validates input", asy
   assert.equal(records.length, recordCount);
 
   failLookup = true;
-  await expectError(booking(resourceA, at("20:00"), at("21:00")), 500, "INTERNAL_ERROR");
+  await expectError(
+    booking(resourceA, at("20:00"), at("21:00")),
+    500,
+    "INTERNAL_ERROR",
+    "An unexpected server error occurred.",
+  );
   assert.equal(records.length, recordCount);
 });
 
-test("GET /api/v1/reservations/user/:userId returns every status for the exact user", async (context): Promise<void> => {
+test("GET /api/v1/reservations/user/:userId returns every status for the exact user", async (context: nodeTest.TestContext): Promise<void> => {
   const resourceId: string = "000000000000000000000001";
   const records: ReservationRecord[] = [
     new ReservationModel({
@@ -255,6 +278,7 @@ test("GET /api/v1/reservations/user/:userId returns every status for the exact u
 
   const app: express.Express = express();
   app.use("/api/v1", reservationRouter);
+  app.use(errorHandler);
   const server: http.Server = await new Promise<http.Server>((resolve, reject): void => {
     const listeningServer: http.Server = app.listen(0, "127.0.0.1", (): void => {
       resolve(listeningServer);
@@ -317,10 +341,18 @@ test("GET /api/v1/reservations/user/:userId returns every status for the exact u
   const invalid = await get(" ");
   assert.equal(invalid.status, 400);
   assert.equal((invalid.body as Record<string, unknown>).code, "VALIDATION_ERROR");
+  assert.deepEqual(invalid.body, {
+    code: "VALIDATION_ERROR",
+    message: "userId must be a non-empty string.",
+  });
   assert.equal(queriedUsers.length, 3);
 
   failLookup = true;
   const failed = await get("student-1");
   assert.equal(failed.status, 500);
   assert.equal((failed.body as Record<string, unknown>).code, "INTERNAL_ERROR");
+  assert.deepEqual(failed.body, {
+    code: "INTERNAL_ERROR",
+    message: "An unexpected server error occurred.",
+  });
 });

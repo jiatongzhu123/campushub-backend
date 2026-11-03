@@ -2,6 +2,7 @@ import assert = require("node:assert/strict");
 import http = require("node:http");
 import nodeTest = require("node:test");
 import express = require("express");
+import errorHandler = require("../middleware/errorHandler");
 import mongoose = require("mongoose");
 import reservationModelModule = require("../models/Reservation.model");
 import reservationRouter = require("../routes/reservation.routes");
@@ -28,7 +29,7 @@ interface HttpResult {
   body: Record<string, unknown>;
 }
 
-test("PATCH /api/v1/reservations/:id/cancel is idempotent and releases the slot", async (context): Promise<void> => {
+test("PATCH /api/v1/reservations/:id/cancel is idempotent and releases the slot", async (context: nodeTest.TestContext): Promise<void> => {
   const resourceId: string = "00000000000000000000000a";
   const pendingId: string = "000000000000000000000001";
   const confirmedId: string = "000000000000000000000002";
@@ -142,6 +143,7 @@ test("PATCH /api/v1/reservations/:id/cancel is idempotent and releases the slot"
   const app: express.Express = express();
   app.use(express.json());
   app.use("/api/v1", reservationRouter);
+  app.use(errorHandler);
   const server: http.Server = await new Promise<http.Server>((resolve, reject): void => {
     const listeningServer: http.Server = app.listen(0, "127.0.0.1", (): void => {
       resolve(listeningServer);
@@ -180,7 +182,12 @@ test("PATCH /api/v1/reservations/:id/cancel is idempotent and releases the slot"
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
   }
 
-  assert.equal((await post(startTime, endTime)).status, 409);
+  const conflict = await post(startTime, endTime);
+  assert.equal(conflict.status, 409);
+  assert.deepEqual(conflict.body, {
+    code: "DOUBLE_BOOKING",
+    message: "Resource is already reserved for this time slot.",
+  });
   const pending = await patch(pendingId);
   assert.equal(pending.status, 200);
   assert.deepEqual(pending.body, {
@@ -223,20 +230,36 @@ test("PATCH /api/v1/reservations/:id/cancel is idempotent and releases the slot"
   const invalid = await patch("not-an-object-id");
   assert.equal(invalid.status, 400);
   assert.equal(invalid.body.code, "VALIDATION_ERROR");
+  assert.deepEqual(invalid.body, {
+    code: "VALIDATION_ERROR",
+    message: "id must be a valid MongoDB ObjectId.",
+  });
+  const emptyId = await patch(" ");
+  assert.equal(emptyId.status, 400);
+  assert.deepEqual(emptyId.body, invalid.body);
   assert.equal(updateCalls, callsBeforeInvalid);
 
   const unknown = await patch(unknownId);
   assert.equal(unknown.status, 404);
   assert.equal(unknown.body.code, "NOT_FOUND");
+  assert.deepEqual(unknown.body, {
+    code: "NOT_FOUND",
+    message: "Reservation not found.",
+  });
 
   failUpdate = true;
   const updateFailure = await patch(pendingId);
   assert.equal(updateFailure.status, 500);
   assert.equal(updateFailure.body.code, "INTERNAL_ERROR");
+  assert.deepEqual(updateFailure.body, {
+    code: "INTERNAL_ERROR",
+    message: "An unexpected server error occurred.",
+  });
   failUpdate = false;
 
   failRead = true;
   const readFailure = await patch(cancelledId);
   assert.equal(readFailure.status, 500);
   assert.equal(readFailure.body.code, "INTERNAL_ERROR");
+  assert.deepEqual(readFailure.body, updateFailure.body);
 });

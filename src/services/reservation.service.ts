@@ -1,15 +1,8 @@
 import mongoose = require("mongoose");
 import reservationModelModule = require("../models/Reservation.model");
-import type { Reservation } from "../types/reservation";
+import type { CreateReservationDTO, Reservation } from "../types/reservation";
 
 const { ReservationModel } = reservationModelModule;
-
-interface CreateReservationInput {
-  resourceId: string;
-  userId: string;
-  startTime: string;
-  endTime: string;
-}
 
 type InvalidReservationReason = "INVALID_RESOURCE_ID" | "INVALID_TIME_RANGE";
 
@@ -24,7 +17,7 @@ type CancelReservationResult =
   | { kind: "cancelled"; reservation: Reservation };
 
 async function createReservation(
-  input: CreateReservationInput,
+  input: CreateReservationDTO,
 ): Promise<CreateReservationResult> {
   if (!mongoose.Types.ObjectId.isValid(input.resourceId)) {
     return { kind: "invalid", reason: "INVALID_RESOURCE_ID" };

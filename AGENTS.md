@@ -1,29 +1,25 @@
-# CampusHub Backend Agent Instructions
+# CampusHub Agent Instructions
 
-These rules govern all AI coding agent work in this repository.
+Applies repository-wide.
 
-## Tech stack and dependencies
+## Stack and architecture
 
-- Write application source in TypeScript only. Do not create raw JavaScript (`.js`) source files.
-- Use Node.js, Express, and Mongoose for the backend.
-- Do not add, install, or introduce a library or dependency without explicit approval.
+- Write application source in TypeScript; no raw JavaScript or `any`. Explicitly type parameters, returns, props, schemas, and documents.
+- Backend: Node.js, Express, MongoDB via Mongoose. `src/app.ts` is the entry point.
+- Routes map endpoints/middleware to controllers; no business logic. Controllers handle HTTP and delegate to services; no database/model access. Services handle business logic/data access through models; no HTTP handling. Models define schemas/interfaces only.
+- Frontend: React/Vite in `client/src/`. Use functional components, explicit props interfaces, state/effect hooks, the typed `client/src/api/` client, and CSS Modules; global CSS is for base styles. Keep API calls out of JSX.
+- Preserve resource filtering, booking, reservation listing/cancellation, loading/error/success states, and async cleanup. Keep `/api/v1` and handwritten `docs/openapi.yaml` compatible, including HTTP statuses and JSON errors.
+- Await, return, or explicitly handle every promise; handle errors at the appropriate layer. No unhandled rejections.
+- Add/install dependencies only with explicit approval. Do not hand-edit generated files.
 
-## Architecture
+## Context scope
 
-Keep responsibilities in their assigned layers:
+- Start searches in `src/` and `client/src/` (e.g., `rg --files src client/src`); include `client/tests/`, configuration, and `docs/openapi.yaml` when relevant.
+- Skip dependencies, builds, coverage, lockfiles, historical logs, temporary files, maps, and generated API/bundle output unless explicitly needed. Apply this scope explicitly in Codex; do not assume `.cursorignore` is honored.
 
-- **Routes:** Define endpoints and map middleware and controllers. Do not put business logic in routes.
-- **Controllers:** Handle requests and responses, including HTTP status codes. Delegate business operations to services. Do not query the database or call Mongoose models directly.
-- **Services:** Implement business logic and coordinate data access through models. Keep HTTP request and response handling out of services.
-- **Models:** Define Mongoose schemas and TypeScript interfaces only. Do not put route, controller, or service logic in models.
+## Checks and reporting
 
-## Type safety and asynchronous work
-
-- Declare explicit TypeScript types or interfaces for function parameters and return values, and for database schemas and documents.
-- Do not use the `any` type.
-- Handle asynchronous errors through the appropriate layer and ensure every promise is awaited, returned, or explicitly handled. Do not leave unhandled promises.
-- Prefer clear, maintainable, strongly typed code.
-
-## Change summary
-
-After making code changes, provide a concise PR/diff-style summary that states what changed, why it changed, and how these repository rules were followed.
+- Backend (root): `npm test`, `npm run build`.
+- Frontend (`client/`): `npm test`, `npm run lint` (Oxlint), `npm run build`.
+- Tests use Node's test runner. Builds write output; backend tests build first. Respect task-specific write restrictions.
+- Summarize changes, rationale, validation, and compliance with these rules.
