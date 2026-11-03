@@ -22,24 +22,44 @@ Creation requests have four required client-supplied string fields. Serialized r
 
 The approved creation hook body is unchanged by the final list extraction. Successful creation still notifies the parent after form unmount; local resets remain mounted-only. The list's request key, `isCurrent` cleanup, cancellation lock, retry increment, feedback messages, and success reload were copied without behavioral edits. Grouping and JSX were compared against their originals and remain unchanged.
 
-## Final automated verification
+## Verification after post-submission review
 
 | Directory | Command | Result |
 | --- | --- | --- |
-| Root | `npm test` | PASS: 19 tests, 0 failures/skips |
+| Root | `npm test` | PASS: 27 tests, 0 failures/skips |
 | Root | `npm run build` | PASS |
 | `client/` | `npm test` | PASS: 6 tests, 0 failures/skips |
 | `client/` | `npm run lint` | PASS (existing Oxlint script) |
 | `client/` | `npm run build` | PASS: TypeScript and Vite production build |
 | Root | `git diff --check` | PASS; Windows LF-to-CRLF notices only |
 
+The final backend `npm test` summary reports 27 tests and 27 passes, with zero failures, cancellations, skips, or todos. Node counts five top-level tests (including the error-handler parent) and 22 nested subtests. The earlier 23-test result preceded three compressed-body cases and the parser-like route `Error` case; nesting is included in both totals.
+
 The frontend build used the previously approved execution outside the sandbox because Vite's Windows helper encounters `spawn EPERM` inside it. No configuration or dependency workaround was added.
 
-Backend tests cover exact 400/404/409/500 JSON contracts, malformed JSON, resource filters, overlap and adjacent-slot behavior, serialization, cancellation idempotency/slot reuse, rejected values, and headers-sent delegation. Frontend tests cover local time validation/conversion, non-JSON API errors, and exact booking/cancellation feedback. Prior approved source changes were checked by file hashes; generated output and dependency files have no new Git changes, and nothing is staged.
+Backend tests cover exact 400/404/409/500 JSON contracts, malformed JSON, resource filters, overlap and adjacent-slot behavior, serialization, cancellation idempotency/slot reuse, rejected values, and headers-sent delegation. The review added real HTTP tests for oversized JSON (413), unsupported charset/encoding (415), invalid gzip/deflate/Brotli bodies (400), and parser-like route rejections that must remain generic 500s. Frontend tests cover local time validation/conversion, non-JSON API errors, and exact booking/cancellation feedback.
+
+## Post-submission corrections
+
+- Direct HTTP comparisons of the parser middleware sequence from `b030efb^` with the submitted handler reproduced a regression: parser 400/413/415 responses became 500. The handler now checks parser-stage HTTP error metadata, retains those statuses, and returns fixed public `{ code, message }` bodies. Route errors cannot acquire a trusted status by carrying parser-like metadata. Unknown errors stay sanitized; malformed-JSON middleware is unchanged. The current six parser regression subtests pass with their original statuses; this does not claim a recorded pre-fix run of the complete final suite.
+- Lab 6 commit `b030efb` was pushed to GitHub, and the student confirmed Canvas submission. Follow-up corrections require independent approval before publication.
+- Comparison with the pre-Lab-6 source confirmed unchanged reservation request keys, cleanup and cancellation logic, component render trees, routes, models, API client, and date utility. No frontend implementation or shared declarations needed changing.
 
 ## Limits and remaining work
 
 - Backend database operations are mocked. No live MongoDB or browser end-to-end run was performed.
-- Code comparison confirmed retained request keys, guards, cleanup, and callbacks; React lifecycle and request races have no automated coverage. Later browser checks should delay requests, switch users/resources, verify stale results are ignored, double-click booking/cancellation, retry failures, confirm creation still refreshes the parent after form unmount, and confirm cancellation refresh keeps cancelled bookings visible.
+- No DOM implementation, React test renderer, Testing Library, or browser runner is installed. `react-dom/test-utils` only wraps `act`; it does not provide a renderer or DOM. The existing Node tests cannot reliably mount these hooks or exercise their effects. No dependencies, fake hook dispatcher, or lifecycle-coverage claims were added.
 - Existing non-atomic booking conflict-check/save behavior documented in `docs/openapi.yaml` remains unchanged. Repeated reservation serialization and resource-list fetching were not refactored.
-- All required implementation artifacts are present locally. Git commit/push and submission of the repository link to Canvas remain pending the user's next instruction.
+
+## Manual lifecycle plan (not executed)
+
+Use an isolated test database and browser Network tools to delay responses; use controlled API failures for the failure cases. Record requests and visible state for each case:
+
+1. With an available resource, user A, and valid times, delay creation and submit twice rapidly. Expect one POST, disabled controls, then the exact success message, cleared inputs, and a reservation-list refresh.
+2. Delay a creation POST, switch resource or user, and enter new form values before completing the old request. Expect the replacement form's values/feedback to stay intact and the parent to refresh after the old creation succeeds.
+3. Delay user A's reservation GET, switch to B, finish B's response first, then A's. Expect only B's bookings. Repeat with a stale A failure; it must not overwrite B's success. Also complete a booking while a list GET is pending so the parent triggers another GET; finish the newer GET first and check the older result is ignored.
+4. Fail a current list GET, then use Try again. Expect loading, followed by current data or the current error; old errors/results must not reappear.
+5. Delay cancellation and click twice rapidly. Expect one PATCH, disabled cancel buttons, the exact success message, and a new GET. The cancelled booking must remain visible in the cancelled group after refresh.
+6. Fail creation/cancellation, then retry successfully. Expect the existing operation-specific feedback, released request guards, and restored controls. Switch users while cancellation is pending and finish it afterward; old action feedback must not appear for the new user.
+
+The app retains pre-existing React StrictMode development effect replays, which can duplicate initial GETs; those are distinct from duplicate POST/PATCH mutations. These manual checks do not substitute for automated React lifecycle coverage and are not recorded as passed.

@@ -3,6 +3,7 @@ import http = require("node:http");
 import nodeTest = require("node:test");
 import express = require("express");
 import errorHandler = require("../middleware/errorHandler");
+import handleMalformedJson = require("../middleware/json-error.middleware");
 import resourceModelModule = require("../models/Resource.model");
 import reservationRouter = require("../routes/reservation.routes");
 import type { Resource, ResourceFilters } from "../types/reservation";
@@ -169,6 +170,19 @@ test("centralized error handling sanitizes failures and delegates after headers 
       value: { statusCode: 400, code: "PRIVATE_CODE", message: "PRIVATE details", stack: "PRIVATE stack" },
     },
     { label: "array", value: ["PRIVATE details"] },
+    {
+      label: "parser-like object",
+      value: { type: "entity.too.large", status: 413, message: "PRIVATE details" },
+    },
+    {
+      label: "parser-like Error from a route",
+      value: Object.assign(new Error("PRIVATE details"), {
+        type: "entity.too.large",
+        status: 413,
+        statusCode: 413,
+        expose: true,
+      }),
+    },
     { label: "null", value: null },
     { label: "undefined", value: undefined },
     { label: "false", value: false },
@@ -181,6 +195,11 @@ test("centralized error handling sanitizes failures and delegates after headers 
   const startedError: Error = new Error("PRIVATE error after headers were sent");
   const delegatedErrors: unknown[] = [];
   const app: express.Express = express();
+  app.use(express.json());
+  app.use(handleMalformedJson);
+  app.post("/body", (_request: express.Request, response: express.Response): void => {
+    response.json({ ok: true });
+  });
   app.get("/rejected/:index", async (request: express.Request, _response: express.Response): Promise<void> => {
     const failure: FailureCase | undefined = failures[Number(request.params.index)];
     assert.ok(failure !== undefined);
@@ -246,6 +265,60 @@ test("centralized error handling sanitizes failures and delegates after headers 
   await context.test("synchronous thrown object produces a sanitized JSON 500", async (): Promise<void> => {
     await expectInternalError("/thrown");
   });
+
+  const parserFailures: Array<{
+    label: string;
+    body: string;
+    headers: Record<string, string>;
+    status: number;
+    message: string;
+  }> = [
+    {
+      label: "oversized JSON retains HTTP 413",
+      body: JSON.stringify({ value: "x".repeat(110000) }),
+      headers: { "content-type": "application/json" },
+      status: 413,
+      message: "Request body is too large.",
+    },
+    {
+      label: "unsupported charset retains HTTP 415",
+      body: "{}",
+      headers: { "content-type": "application/json; charset=iso-8859-1" },
+      status: 415,
+      message: "Unsupported request charset.",
+    },
+    {
+      label: "unsupported encoding retains HTTP 415",
+      body: "{}",
+      headers: { "content-type": "application/json", "content-encoding": "compress" },
+      status: 415,
+      message: "Unsupported content encoding.",
+    },
+  ];
+  for (const encoding of ["gzip", "deflate", "br"]) {
+    parserFailures.push({
+      label: `invalid ${encoding} body retains HTTP 400`,
+      body: "{}",
+      headers: { "content-type": "application/json", "content-encoding": encoding },
+      status: 400,
+      message: "Invalid request body.",
+    });
+  }
+  for (const failure of parserFailures) {
+    await context.test(failure.label, async (): Promise<void> => {
+      const response: Response = await fetch(`${baseUrl}/body`, {
+        method: "POST",
+        body: failure.body,
+        headers: failure.headers,
+      });
+      assert.equal(response.status, failure.status);
+      assert.match(response.headers.get("content-type") ?? "", /application\/json/);
+      assert.deepEqual(await response.json(), {
+        code: "VALIDATION_ERROR",
+        message: failure.message,
+      });
+    });
+  }
   assert.deepEqual(delegatedErrors, []);
 
   await context.test("sent headers delegate the original error without rewriting the response", async (): Promise<void> => {

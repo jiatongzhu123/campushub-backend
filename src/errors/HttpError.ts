@@ -1,4 +1,4 @@
-type HttpErrorStatusCode = 400 | 404 | 409;
+type HttpErrorStatusCode = 400 | 404 | 409 | 413 | 415;
 
 class HttpError extends Error {
   readonly statusCode: HttpErrorStatusCode;
