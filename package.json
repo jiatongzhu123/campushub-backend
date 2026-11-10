@@ -7,7 +7,9 @@
     "build": "tsc",
     "dev": "npm run build && npm start",
     "start": "node dist/app.js",
-    "test": "npm run build && node --test --test-isolation=none --test-concurrency=1 dist/tests/resource.test.js dist/tests/reservation.test.js dist/tests/cancellation.test.js"
+    "test": "npm run test:legacy && npm run test:jest",
+    "test:legacy": "npm run build && node --test --test-isolation=none --test-concurrency=1 dist/tests/resource.test.js dist/tests/reservation.test.js dist/tests/cancellation.test.js",
+    "test:jest": "jest --config jest.config.ts --runInBand"
   },
   "keywords": [],
   "author": "",
@@ -15,11 +17,18 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.6.2",
+    "@types/supertest": "^7.2.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.11.0",
+    "jest": "^30.5.2",
+    "mongodb-memory-server": "^11.3.0",
     "prettier": "^3.9.9",
+    "supertest": "^7.3.2",
+    "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
-    "typescript": "^7.0.2"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "express": "^5.2.1",

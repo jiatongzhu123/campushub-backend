@@ -1,17 +1,8 @@
 import express = require("express");
 import databaseConfig = require("./config/database");
-import handleMalformedJson = require("./middleware/json-error.middleware");
-import errorHandler = require("./middleware/errorHandler");
-import healthRouter = require("./routes/health.routes");
-import reservationRouter = require("./routes/reservation.routes");
+import createApp = require("./createApp");
 
-const app: express.Express = express();
-
-app.use(express.json());
-app.use(handleMalformedJson);
-app.use("/api/v1", healthRouter);
-app.use("/api/v1", reservationRouter);
-app.use(errorHandler);
+const app: express.Express = createApp();
 
 async function startServer(): Promise<void> {
   await databaseConfig.connectDatabase();
