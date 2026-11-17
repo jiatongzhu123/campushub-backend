@@ -12,6 +12,8 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-24.04
+    outputs:
+      jest_failed: ${{ steps.jest_state.outputs.failed }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -29,5 +31,218 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify patch-validator fixtures on Ubuntu
+        run: node --test --test-isolation=none .github/scripts/validate-ai-patch.test.mjs
+
+      - name: Run Jest and capture diagnostics
+        id: jest_diagnostic
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:jest 2>&1 | tee "$RUNNER_TEMP/test-results.log"
+
+      - name: Upload failing Jest log
+        if: ${{ failure() && steps.jest_diagnostic.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: jest-failure-log
+          path: ${{ runner.temp }}/test-results.log
+          if-no-files-found: error
+
       - name: Test
         run: npm test
+
+      - name: Record Jest failure state
+        id: jest_state
+        if: ${{ always() }}
+        shell: bash
+        run: echo "failed=${{ steps.jest_diagnostic.outcome == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+  auto-fix:
+    needs: ci
+    if: >-
+      ${{
+        failure() &&
+        needs.ci.result == 'failure' &&
+        needs.ci.outputs.jest_failed == 'true' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.ref == 'test/breaking-reservation-change' &&
+        github.event.pull_request.user.login == 'jiatongzhu123'
+      }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      copilot-requests: write
+    steps:
+      - name: Check out exact failing PR commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Download failing Jest log
+        uses: actions/download-artifact@v8
+        with:
+          name: jest-failure-log
+          path: ${{ runner.temp }}/auto-fix-input
+
+      - name: Prepare and check repair inputs
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          input_dir="$RUNNER_TEMP/auto-fix-input"
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid PR head SHA'; exit 1; }
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'Invalid PR base SHA'; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$PR_HEAD_SHA" ]] || { echo 'Checked-out HEAD differs from PR head'; exit 1; }
+          git cat-file -e "${PR_BASE_SHA}^{commit}"
+          test -s "$input_dir/test-results.log"
+          git diff --no-ext-diff --no-textconv --binary "$PR_BASE_SHA...$PR_HEAD_SHA" > "$input_dir/pr.diff"
+          test -s "$input_dir/pr.diff"
+          changed_paths="$(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA")"
+          [[ "$changed_paths" == 'src/services/reservation.service.ts' ]] || { echo 'Unexpected paths in the failing PR'; exit 1; }
+          git diff --quiet "$PR_BASE_SHA" "$PR_HEAD_SHA" -- \
+            .github/scripts/run-copilot-repair.mjs \
+            .github/scripts/validate-ai-patch.mjs || { echo 'Repair scripts differ from the PR base'; exit 1; }
+          {
+            for source_file in \
+              src/services/reservation.service.ts \
+              src/services/__tests__/reservation.service.test.ts \
+              src/routes/__tests__/reservation.routes.test.ts \
+              src/tests/reservation.test.ts; do
+              printf '\n=== %s ===\n' "$source_file"
+              cat "$source_file"
+            done
+          } > "$input_dir/source-context.txt"
+          test -s "$input_dir/source-context.txt"
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Generate source repair with Copilot
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/run-copilot-repair.mjs \
+            --test-log "$RUNNER_TEMP/auto-fix-input/test-results.log" \
+            --pr-diff "$RUNNER_TEMP/auto-fix-input/pr.diff" \
+            --source-context "$RUNNER_TEMP/auto-fix-input/source-context.txt" \
+            --expected-head "$PR_HEAD_SHA"
+
+      - name: Recheck patch safety
+        run: node .github/scripts/validate-ai-patch.mjs
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Verify patch-validator fixtures on Ubuntu
+        run: node --test --test-isolation=none .github/scripts/validate-ai-patch.test.mjs
+
+      - name: Lint repaired source
+        run: npm run lint
+
+      - name: Test repaired source
+        run: npm test
+
+      - name: Build repaired source
+        run: npm run build
+
+      - name: Prepare validated patch artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/validate-ai-patch.mjs
+          git diff --check HEAD
+          git diff --binary --no-ext-diff HEAD -- src/services/reservation.service.ts > "$RUNNER_TEMP/validated-repair.patch"
+          test -s "$RUNNER_TEMP/validated-repair.patch"
+
+      - name: Upload validated patch for Stage 5C
+        uses: actions/upload-artifact@v7
+        with:
+          name: validated-repair-patch
+          path: ${{ runner.temp }}/validated-repair.patch
+          if-no-files-found: error
+
+  publish-fix:
+    needs: [ci, auto-fix]
+    if: >-
+      ${{
+        always() && !cancelled() &&
+        needs.ci.result == 'failure' &&
+        needs.ci.outputs.jest_failed == 'true' &&
+        needs['auto-fix'].result == 'success' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.ref == 'test/breaking-reservation-change' &&
+        github.event.pull_request.user.login == 'jiatongzhu123'
+      }}
+    concurrency:
+      group: publish-fix-${{ github.repository }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out trusted publisher from main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out exact failing PR commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: failing
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Download validated repair patch
+        uses: actions/download-artifact@v8
+        with:
+          name: validated-repair-patch
+          path: ${{ runner.temp }}/publish-input
+
+      - name: Apply and validate untrusted patch without publication token
+        working-directory: failing
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/trusted/.github/scripts/publish-ai-repair.mjs" apply \
+            --patch "$RUNNER_TEMP/publish-input/validated-repair.patch" \
+            --expected-head "$PR_HEAD_SHA"
+
+      - name: Publish one remediation PR
+        working-directory: failing
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ORIGINAL_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          node "$GITHUB_WORKSPACE/trusted/.github/scripts/publish-ai-repair.mjs" publish \
+            --pr-number "$ORIGINAL_PR_NUMBER" \
+            --expected-head "$PR_HEAD_SHA"
