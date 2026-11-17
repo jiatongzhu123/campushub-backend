@@ -44,7 +44,7 @@ async function createReservation(
     .where("startTime")
     .lt(endTime.getTime())
     .where("endTime")
-    .gt(startTime.getTime())
+    .gte(startTime.getTime())
     .exec();
 
   if (conflictingReservation !== null) {
