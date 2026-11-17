@@ -1,0 +1,55 @@
+name: Copilot CLI smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install GitHub Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Request one text-only model response
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_HOME: ${{ runner.temp }}/copilot-smoke-home
+        run: |
+          set -euo pipefail
+          expected='CAMPUSHUB_COPILOT_SMOKE_OK'
+          if response="$(copilot \
+            -p 'Reply with exactly CAMPUSHUB_COPILOT_SMOKE_OK and nothing else. Do not use tools.' \
+            -s \
+            --available-tools='ask_user' \
+            --no-ask-user \
+            --deny-tool='shell,read,write,url' \
+            --disable-builtin-mcps \
+            --no-custom-instructions \
+            --no-auto-update \
+            2>"$RUNNER_TEMP/copilot-smoke.stderr")"; then
+            status=0
+          else
+            status=$?
+          fi
+          printf 'Copilot CLI exit status: %s\n' "$status"
+          if (( status != 0 )); then
+            stderr="$(<"$RUNNER_TEMP/copilot-smoke.stderr")"
+            printf 'Copilot CLI error: %s\n' "${stderr//"$GITHUB_TOKEN"/[REDACTED]}"
+            exit "$status"
+          fi
+          if [[ "$response" != "$expected" ]]; then
+            printf 'Unexpected model response: %s\n' "${response//"$GITHUB_TOKEN"/[REDACTED]}"
+            exit 1
+          fi
+          printf 'Model response: %s\n' "$response"
