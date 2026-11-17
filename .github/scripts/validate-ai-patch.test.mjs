@@ -28,7 +28,7 @@ const unrelated = "src/services/resource.service.ts";
 function git(repo, args, input) {
   const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", input });
   assert.equal(result.status, 0, `git ${args.join(" ")} failed: ${result.error?.message ?? result.stderr}`);
-  return result.stdout.trim();
+  return result.stdout.trimEnd();
 }
 
 function write(repo, path, content) {
