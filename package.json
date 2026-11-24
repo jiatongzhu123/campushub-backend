@@ -10,7 +10,8 @@
     "lint": "eslint \"src/**/*.ts\" \"shared/**/*.ts\"",
     "test": "npm run test:jest && npm run test:legacy",
     "test:legacy": "npm run build && node --test --test-isolation=none --test-concurrency=1 dist/tests/resource.test.js dist/tests/reservation.test.js dist/tests/cancellation.test.js",
-    "test:jest": "jest --config jest.config.ts --runInBand"
+    "test:jest": "jest --config jest.config.ts --runInBand",
+    "test:e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +19,7 @@
   "type": "commonjs",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.2",
