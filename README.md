@@ -31,6 +31,15 @@ Run `npm test` and `npm run build` at the root for backend checks. Run `npm test
 
 ## Browser E2E checks
 
-From the repository root, install dependencies with `npm install`, then install the Playwright browsers with `npx playwright install chromium firefox webkit`. Run `npx playwright test` (or `npm run test:e2e`). Playwright builds and starts the Express app on `127.0.0.1:3000`, starts Vite on `127.0.0.1:5173`, and checks the app in Chromium, Firefox, and WebKit. Both ports must be free.
+From a fresh clone, run these commands at the repository root. The client has its own `package-lock.json`, so installing root dependencies does not install the frontend dependencies.
+
+```powershell
+npm ci
+npm ci --prefix client
+npx playwright install chromium firefox webkit
+npm run test:e2e
+```
+
+Playwright builds and starts the Express app on `127.0.0.1:3000`, starts Vite on `127.0.0.1:5173`, and checks the app in Chromium, Firefox, and WebKit. Both ports must be free.
 
 The E2E API uses its own temporary `mongodb-memory-server` database and ignores any ambient `MONGODB_URI`; it does not need a local MongoDB service or a `.env` file. It seeds three study rooms and three 3D printers before listening. Each browser project uses its own room and printer. An endpoint mounted only by the E2E launcher clears reservations before each reservation test, including repeated runs in one Playwright session; it checks that Mongoose is connected to the E2E memory database before deleting anything. The conflict test then creates its initial reservation through the real API. Browser tests use the `America/Los_Angeles` timezone and derive tomorrow's local booking window in the browser. A Playwright reporter removes the current run's marked MongoDB data directory after the web servers stop, including on Windows where Playwright force-terminates them. If the Playwright runner itself is forcibly terminated, or the API is killed before it writes the ownership marker, cleanup cannot be guaranteed.
